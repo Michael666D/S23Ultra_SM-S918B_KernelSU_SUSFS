@@ -14,12 +14,9 @@ runs:
       shell: bash
       run: |
         cd "$COMMON"
-        curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s dev
+        curl -LSs "https://raw.githubusercontent.com/pershoot/KernelSU-Next/dev-susfs/kernel/setup.sh" | bash -s dev
 
-        cd KernelSU-Next
-        git checkout c2013a15ae1eaca69032fa6016ffefb70adf6146
-
-        cd kernel
+        cd KernelSU-Next/kernel
         COMMITS_COUNT=$(/usr/bin/git rev-list --count HEAD)
         BASE_VERSION=30000
         KSU_VERSION=$(expr $COMMITS_COUNT + "$BASE_VERSION")
@@ -28,10 +25,9 @@ runs:
         KSU_GIT_TAG="$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.1")"
         sed -i "s/^KSU_VERSION_TAG_FALLBACK := v0.0.1$/KSU_VERSION_TAG_FALLBACK := ${KSU_GIT_TAG}/" Kbuild
 
-        echo "=== KernelSU-Next creator base ==="
-        echo "KSU_COMMIT=$(git rev-parse HEAD)"
-        echo "KSU_VERSION=$KSU_VERSION"
-        echo "KSU_TAG=$KSU_GIT_TAG"
+        echo "KSU_GIT_TAG: $KSU_GIT_TAG"
+        echo "KSU_VERSION: $KSU_VERSION"
+        echo "KSU_COMMIT: $(git rev-parse --short HEAD)"
 
         cd "$GITHUB_WORKSPACE"
         cat >> "$GKI_DEFCONFIG" << 'EOF'
@@ -39,17 +35,14 @@ runs:
         CONFIG_KSU=y
         EOF
 
-    - name: Setup KSUN with susfs
+    - name: Setup pershoot KSUN with susfs
       if: inputs.susfs == 'true'
       shell: bash
       run: |
         cd "$COMMON"
-        curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s dev
+        curl -LSs "https://raw.githubusercontent.com/pershoot/KernelSU-Next/dev-susfs/kernel/setup.sh" | bash -s dev-susfs
 
-        cd KernelSU-Next
-        git checkout c2013a15ae1eaca69032fa6016ffefb70adf6146
-
-        cd kernel
+        cd KernelSU-Next/kernel
         COMMITS_COUNT=$(/usr/bin/git rev-list --count HEAD)
         BASE_VERSION=30000
         KSU_VERSION=$(expr $COMMITS_COUNT + "$BASE_VERSION")
@@ -58,10 +51,9 @@ runs:
         KSU_GIT_TAG="$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.1")"
         sed -i "s/^KSU_VERSION_TAG_FALLBACK := v0.0.1$/KSU_VERSION_TAG_FALLBACK := ${KSU_GIT_TAG}/" Kbuild
 
-        echo "=== KernelSU-Next creator base ==="
-        echo "KSU_COMMIT=$(git rev-parse HEAD)"
-        echo "KSU_VERSION=$KSU_VERSION"
-        echo "KSU_TAG=$KSU_GIT_TAG"
+        echo "KSU_GIT_TAG: $KSU_GIT_TAG"
+        echo "KSU_VERSION: $KSU_VERSION"
+        echo "KSU_COMMIT: $(git rev-parse --short HEAD)"
 
         cd "$GITHUB_WORKSPACE"
         cat >> "$GKI_DEFCONFIG" << 'EOF'
