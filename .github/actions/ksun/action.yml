@@ -100,23 +100,27 @@ runs:
         p = Path("kernel/feature/selinux_hide.c")
         s = p.read_text()
 
+        force_define = "#define KSU_FORCE_SELINUX_HIDE_WITH_SUSFS 1"
+
         if "KSU_FORCE_SELINUX_HIDE_WITH_SUSFS" not in s:
+            include_anchor = '#include "policy/feature.h"'
+            if include_anchor not in s:
+                raise SystemExit("ERROR: include anchor not found in selinux_hide.c")
+
             if "#ifndef CONFIG_KSU_SUSFS" not in s:
                 raise SystemExit("ERROR: CONFIG_KSU_SUSFS guard not found in selinux_hide.c")
 
-            if "#endif // #ifndef CONFIG_KSU_SUSFS" not in s:
-                raise SystemExit("ERROR: CONFIG_KSU_SUSFS endif not found in selinux_hide.c")
+            s = s.replace(include_anchor, include_anchor + "\n" + force_define, 1)
 
+            # Replace ALL CONFIG_KSU_SUSFS guards in selinux_hide.c.
+            # There are guards around:
+            # 1) write_op declarations and my_write_access()
+            # 2) unhook()
+            # 3) enable() hook installation
+            # 4) unhook label after enable() failure
             s = s.replace(
                 "#ifndef CONFIG_KSU_SUSFS",
-                "#if 1 /* KSU_FORCE_SELINUX_HIDE_WITH_SUSFS */",
-                1
-            )
-
-            s = s.replace(
-                "#endif // #ifndef CONFIG_KSU_SUSFS",
-                "#endif // KSU_FORCE_SELINUX_HIDE_WITH_SUSFS",
-                1
+                "#if !defined(CONFIG_KSU_SUSFS) || defined(KSU_FORCE_SELINUX_HIDE_WITH_SUSFS)"
             )
 
         marker = "KSU extra sanitize for app-visible /sys/fs/selinux/access"
@@ -162,7 +166,14 @@ runs:
         grep -n "0x00200000" kernel/feature/selinux_hide.c
         grep -n "avd.allowed &= ~0x02000000" kernel/feature/selinux_hide.c
         grep -n "avd.allowed &= ~0x00200000" kernel/feature/selinux_hide.c
-        grep -nE "scnprintf|access_write|my_write_access|CONFIG_KSU_SUSFS|#if 1" kernel/feature/selinux_hide.c | head -120
+
+        echo "=== VERIFY ALL SUSFS SELINUX GUARDS WERE FORCED ==="
+        if grep -n "^#ifndef CONFIG_KSU_SUSFS" kernel/feature/selinux_hide.c; then
+          echo "ERROR: remaining #ifndef CONFIG_KSU_SUSFS guard still blocks SELinux hide"
+          exit 1
+        fi
+
+        grep -nE "scnprintf|access_write|my_write_access|CONFIG_KSU_SUSFS|KSU_FORCE_SELINUX_HIDE_WITH_SUSFS" kernel/feature/selinux_hide.c | head -180
 
         echo "=== KSU INTERCEPTION / HYBRID CHECK ==="
         grep -R -nE "HYBRID|hybrid|KPROBE|MANUAL_HOOK|CONFIG_KSU|ksu_handle" kernel Kconfig 2>/dev/null | head -120 || true
