@@ -100,6 +100,25 @@ runs:
         p = Path("kernel/feature/selinux_hide.c")
         s = p.read_text()
 
+        if "KSU_FORCE_SELINUX_HIDE_WITH_SUSFS" not in s:
+            if "#ifndef CONFIG_KSU_SUSFS" not in s:
+                raise SystemExit("ERROR: CONFIG_KSU_SUSFS guard not found in selinux_hide.c")
+
+            if "#endif // #ifndef CONFIG_KSU_SUSFS" not in s:
+                raise SystemExit("ERROR: CONFIG_KSU_SUSFS endif not found in selinux_hide.c")
+
+            s = s.replace(
+                "#ifndef CONFIG_KSU_SUSFS",
+                "#if 1 /* KSU_FORCE_SELINUX_HIDE_WITH_SUSFS */",
+                1
+            )
+
+            s = s.replace(
+                "#endif // #ifndef CONFIG_KSU_SUSFS",
+                "#endif // KSU_FORCE_SELINUX_HIDE_WITH_SUSFS",
+                1
+            )
+
         marker = "KSU extra sanitize for app-visible /sys/fs/selinux/access"
 
         sanitize = '''        /* KSU extra sanitize for app-visible /sys/fs/selinux/access
@@ -128,14 +147,22 @@ runs:
             idx = s.find(needle)
             if idx == -1:
                 raise SystemExit("ERROR: target scnprintf line not found in selinux_hide.c")
+
             line_start = s.rfind("\n", 0, idx) + 1
             s = s[:line_start] + sanitize + s[line_start:]
-            p.write_text(s)
             print("SELinux dirty bits patch applied")
+
+        p.write_text(s)
         PY
 
         echo "=== KSU SELINUX DIRTY BITS PATCH CHECK ==="
-        grep -nE "KSU extra sanitize|execmem|sys_admin|scnprintf" kernel/feature/selinux_hide.c | head -80
+        grep -n "KSU_FORCE_SELINUX_HIDE_WITH_SUSFS" kernel/feature/selinux_hide.c
+        grep -n "KSU extra sanitize for app-visible /sys/fs/selinux/access" kernel/feature/selinux_hide.c
+        grep -n "0x02000000" kernel/feature/selinux_hide.c
+        grep -n "0x00200000" kernel/feature/selinux_hide.c
+        grep -n "avd.allowed &= ~0x02000000" kernel/feature/selinux_hide.c
+        grep -n "avd.allowed &= ~0x00200000" kernel/feature/selinux_hide.c
+        grep -nE "scnprintf|access_write|my_write_access|CONFIG_KSU_SUSFS|#if 1" kernel/feature/selinux_hide.c | head -120
 
         echo "=== KSU INTERCEPTION / HYBRID CHECK ==="
         grep -R -nE "HYBRID|hybrid|KPROBE|MANUAL_HOOK|CONFIG_KSU|ksu_handle" kernel Kconfig 2>/dev/null | head -120 || true
