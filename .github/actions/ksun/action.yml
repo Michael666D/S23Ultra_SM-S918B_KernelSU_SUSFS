@@ -1,19 +1,22 @@
 name: Set up KernelSU-Next
 description: download and set up KSUN into the kernel source
 
+inputs:
+  susfs:
+    description: "susfs"
+    required: true
+
 runs:
   using: composite
   steps:
-    - name: Setup KSUN
+    - name: Setup KSUN with no susfs
+      if: inputs.susfs == 'false'
       shell: bash
       run: |
         cd "$COMMON"
-        curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s dev
+        curl -LSs "https://raw.githubusercontent.com/pershoot/KernelSU-Next/dev-susfs/kernel/setup.sh" | bash -s dev
 
-        cd KernelSU-Next
-        git checkout c2013a15ae1eaca69032fa6016ffefb70adf6146
-
-        cd kernel
+        cd KernelSU-Next/kernel
         COMMITS_COUNT=$(/usr/bin/git rev-list --count HEAD)
         BASE_VERSION=30000
         KSU_VERSION=$(expr $COMMITS_COUNT + "$BASE_VERSION")
@@ -22,16 +25,41 @@ runs:
         KSU_GIT_TAG="$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.1")"
         sed -i "s/^KSU_VERSION_TAG_FALLBACK := v0.0.1$/KSU_VERSION_TAG_FALLBACK := ${KSU_GIT_TAG}/" Kbuild
 
-        echo "=== KernelSU-Next original creator base ==="
-        echo "KSU_COMMIT=$(git rev-parse HEAD)"
-        echo "KSU_VERSION=$KSU_VERSION"
-        echo "KSU_TAG=$KSU_GIT_TAG"
+        echo "KSU_GIT_TAG: $KSU_GIT_TAG"
+        echo "KSU_VERSION: $KSU_VERSION"
+        echo "KSU_COMMIT: $(git rev-parse --short HEAD)"
 
         cd "$GITHUB_WORKSPACE"
-        cat >> "$GKI_DEFCONFIG" << 'EOF'
-        # KernelSU Configuration
-        CONFIG_KSU=y
-        EOF
+        {
+          echo "# KernelSU Configuration"
+          echo "CONFIG_KSU=y"
+        } >> "$GKI_DEFCONFIG"
+
+    - name: Setup pershoot KSUN with susfs
+      if: inputs.susfs == 'true'
+      shell: bash
+      run: |
+        cd "$COMMON"
+        curl -LSs "https://raw.githubusercontent.com/pershoot/KernelSU-Next/dev-susfs/kernel/setup.sh" | bash -s dev-susfs
+
+        cd KernelSU-Next/kernel
+        COMMITS_COUNT=$(/usr/bin/git rev-list --count HEAD)
+        BASE_VERSION=30000
+        KSU_VERSION=$(expr $COMMITS_COUNT + "$BASE_VERSION")
+        sed -i "s/^KSU_VERSION_FALLBACK := 1$/KSU_VERSION_FALLBACK := ${KSU_VERSION}/" Kbuild
+
+        KSU_GIT_TAG="$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.1")"
+        sed -i "s/^KSU_VERSION_TAG_FALLBACK := v0.0.1$/KSU_VERSION_TAG_FALLBACK := ${KSU_GIT_TAG}/" Kbuild
+
+        echo "KSU_GIT_TAG: $KSU_GIT_TAG"
+        echo "KSU_VERSION: $KSU_VERSION"
+        echo "KSU_COMMIT: $(git rev-parse --short HEAD)"
+
+        cd "$GITHUB_WORKSPACE"
+        {
+          echo "# KernelSU Configuration"
+          echo "CONFIG_KSU=y"
+        } >> "$GKI_DEFCONFIG"
 
     - name: Extract KSU Version Info
       id: ksu-version
@@ -47,3 +75,105 @@ runs:
         echo "KSU_GIT_TAG=$KSU_GIT_TAG" >> "$GITHUB_ENV"
         echo "KSU_VERSION=$KSU_VERSION" >> "$GITHUB_ENV"
         echo "KSU_COMMIT=$KSU_COMMIT" >> "$GITHUB_ENV"
+
+        echo "KSU_GIT_TAG: $KSU_GIT_TAG"
+        echo "KSU_VERSION: $KSU_VERSION"
+        echo "KSU_COMMIT: $KSU_COMMIT"
+
+    - name: Fix KernelSU-Next
+      shell: bash
+      run: |
+        set -euo pipefail
+        cd "$COMMON/KernelSU-Next"
+        cp "${{ github.action_path }}/patches/static.patch" ./
+        patch -p1 < static.patch
+
+    - name: Patch SELinux access dirty bits
+      shell: bash
+      run: |
+        set -euo pipefail
+        cd "$COMMON/KernelSU-Next"
+
+        python3 - <<'PY'
+        from pathlib import Path
+
+        p = Path("kernel/feature/selinux_hide.c")
+        s = p.read_text()
+
+        force_define = "#define KSU_FORCE_SELINUX_HIDE_WITH_SUSFS 1"
+
+        if "KSU_FORCE_SELINUX_HIDE_WITH_SUSFS" not in s:
+            include_anchor = '#include "policy/feature.h"'
+            if include_anchor not in s:
+                raise SystemExit("ERROR: include anchor not found in selinux_hide.c")
+
+            if "#ifndef CONFIG_KSU_SUSFS" not in s:
+                raise SystemExit("ERROR: CONFIG_KSU_SUSFS guard not found in selinux_hide.c")
+
+            s = s.replace(include_anchor, include_anchor + "\n" + force_define, 1)
+
+            # Replace ALL CONFIG_KSU_SUSFS guards in selinux_hide.c.
+            # There are guards around:
+            # 1) write_op declarations and my_write_access()
+            # 2) unhook()
+            # 3) enable() hook installation
+            # 4) unhook label after enable() failure
+            s = s.replace(
+                "#ifndef CONFIG_KSU_SUSFS",
+                "#if !defined(CONFIG_KSU_SUSFS) || defined(KSU_FORCE_SELINUX_HIDE_WITH_SUSFS)"
+            )
+
+        marker = "KSU extra sanitize for app-visible /sys/fs/selinux/access"
+
+        sanitize = '''        /* KSU extra sanitize for app-visible /sys/fs/selinux/access
+         * Device confirmed indexes:
+         * class 2 = process,    perm 26 = execmem   -> 0x02000000
+         * class 4 = capability, perm 22 = sys_admin -> 0x00200000
+         *
+         * This only sanitizes the app-visible /sys/fs/selinux/access result.
+         * It does NOT remove real SELinux rules and does NOT touch interception mode.
+         */
+        if (tclass == 2) {
+            avd.allowed &= ~0x02000000;
+            avd.auditallow &= ~0x02000000;
+        } else if (tclass == 4) {
+            avd.allowed &= ~0x00200000;
+            avd.auditallow &= ~0x00200000;
+        }
+
+        '''
+
+        needle = 'length = scnprintf(buf, SIMPLE_TRANSACTION_LIMIT, "%x %x %x %x %u %x",'
+
+        if marker in s:
+            print("SELinux dirty bits patch already applied")
+        else:
+            idx = s.find(needle)
+            if idx == -1:
+                raise SystemExit("ERROR: target scnprintf line not found in selinux_hide.c")
+
+            line_start = s.rfind("\n", 0, idx) + 1
+            s = s[:line_start] + sanitize + s[line_start:]
+            print("SELinux dirty bits patch applied")
+
+        p.write_text(s)
+        PY
+
+        echo "=== KSU SELINUX DIRTY BITS PATCH CHECK ==="
+        grep -n "KSU_FORCE_SELINUX_HIDE_WITH_SUSFS" kernel/feature/selinux_hide.c
+        grep -n "KSU extra sanitize for app-visible /sys/fs/selinux/access" kernel/feature/selinux_hide.c
+        grep -n "0x02000000" kernel/feature/selinux_hide.c
+        grep -n "0x00200000" kernel/feature/selinux_hide.c
+        grep -n "avd.allowed &= ~0x02000000" kernel/feature/selinux_hide.c
+        grep -n "avd.allowed &= ~0x00200000" kernel/feature/selinux_hide.c
+
+        echo "=== VERIFY ALL SUSFS SELINUX GUARDS WERE FORCED ==="
+        if grep -n "^#ifndef CONFIG_KSU_SUSFS" kernel/feature/selinux_hide.c; then
+          echo "ERROR: remaining #ifndef CONFIG_KSU_SUSFS guard still blocks SELinux hide"
+          exit 1
+        fi
+
+        grep -nE "scnprintf|access_write|my_write_access|CONFIG_KSU_SUSFS|KSU_FORCE_SELINUX_HIDE_WITH_SUSFS" kernel/feature/selinux_hide.c | head -180
+
+        echo "=== KSU INTERCEPTION / HYBRID CHECK ==="
+        grep -R -nE "HYBRID|hybrid|KPROBE|MANUAL_HOOK|CONFIG_KSU|ksu_handle" kernel Kconfig 2>/dev/null | head -120 || true
