@@ -39,8 +39,7 @@ runs:
       shell: bash
       run: |
         cd "$COMMON"
-        curl -LSs "https://raw.githubusercontent.com/pershoot/KernelSU-Next/dev-susfs/kernel/setup.sh" | bash -s dev-susfs
-
+        curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/dev/kernel/setup.sh" | bash -s 065a36a
         #cd KernelSU-Next
         #git checkout c2013a15ae1eaca69032fa6016ffefb70adf6146
 
