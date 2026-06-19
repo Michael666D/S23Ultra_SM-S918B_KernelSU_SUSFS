@@ -76,10 +76,67 @@ runs:
         echo "KSU_VERSION=$KSU_VERSION" >> "$GITHUB_ENV"
         echo "KSU_COMMIT=$KSU_COMMIT" >> "$GITHUB_ENV"
 
-    - name: Fix KernelSU-Next
+    - name: Patch SELinux access dirty bits
       shell: bash
       run: |
         set -euo pipefail
         cd "$COMMON/KernelSU-Next"
-        cp "${{ github.action_path }}/patches/static.patch" ./
-        patch -p1 < static.patch
+
+        python3 - <<'PY'
+        from pathlib import Path
+
+        p = Path("kernel/feature/selinux_hide.c")
+        s = p.read_text()
+
+        # En builds con SUSFS, este archivo puede excluir el hook de /sys/fs/selinux/access.
+        # Forzamos que el bloque de hide también compile con SUSFS.
+        if "KSU_FORCE_SELINUX_HIDE_WITH_SUSFS" not in s:
+            s = s.replace(
+                "#ifndef CONFIG_KSU_SUSFS",
+                "#if 1 /* KSU_FORCE_SELINUX_HIDE_WITH_SUSFS */"
+            )
+            s = s.replace(
+                "#endif // #ifndef CONFIG_KSU_SUSFS",
+                "#endif // KSU_FORCE_SELINUX_HIDE_WITH_SUSFS"
+            )
+
+        marker = "KSU extra sanitize for app-visible /sys/fs/selinux/access"
+
+        sanitize = '''        /* KSU extra sanitize for app-visible /sys/fs/selinux/access
+         * Your device indexes:
+         * class 2 = process,    perm 26 = execmem   -> 0x02000000
+         * class 4 = capability, perm 22 = sys_admin -> 0x00200000
+         *
+         * This only sanitizes the app-visible access result.
+         * It does NOT remove real SELinux rules.
+         */
+        if (tclass == 2) {
+            avd.allowed &= ~0x02000000;
+            avd.auditallow &= ~0x02000000;
+        } else if (tclass == 4) {
+            avd.allowed &= ~0x00200000;
+            avd.auditallow &= ~0x00200000;
+        }
+
+        '''
+
+        needle = 'length = scnprintf(buf, SIMPLE_TRANSACTION_LIMIT, "%x %x %x %x %u %x",'
+
+        if marker in s:
+            print("SELinux dirty bits patch already applied")
+        else:
+            idx = s.find(needle)
+            if idx == -1:
+                raise SystemExit("ERROR: target scnprintf line not found in selinux_hide.c")
+            line_start = s.rfind("\\n", 0, idx) + 1
+            s = s[:line_start] + sanitize + s[line_start:]
+            print("SELinux dirty bits patch applied")
+
+        p.write_text(s)
+        PY
+
+        echo "=== KSU SELINUX DIRTY BITS PATCH CHECK ==="
+        grep -nE "KSU_FORCE_SELINUX_HIDE_WITH_SUSFS|KSU extra sanitize|execmem|sys_admin|scnprintf" kernel/feature/selinux_hide.c | head -80
+
+        echo "=== KSU INTERCEPTION / CONFIG CHECK ==="
+        grep -R -nE "HYBRID|KPROBE|KPROBES|MANUAL_HOOK|CONFIG_KSU|ksu_handle" kernel Kconfig 2>/dev/null | head -120 || true
