@@ -1,0 +1,32 @@
+name: WildQ pinned SM-S918B source
+description: Clone the exact Samsung_Kernels source used as the W0 source baseline.
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        set -euo pipefail
+        SRC="$GITHUB_WORKSPACE/wildq-source"
+        SHA="2558751f5fdf349c0f3271106689e212a70a6a25"
+        rm -rf "$SRC"
+        git init -q "$SRC"
+        git -C "$SRC" remote add origin https://github.com/WildKernels/Samsung_Kernels.git
+        git -C "$SRC" fetch --depth=1 origin "$SHA"
+        git -C "$SRC" checkout --detach FETCH_HEAD
+        test "$(git -C "$SRC" rev-parse HEAD)" = "$SHA"
+
+        COMMON="$SRC/kernel_platform/common"
+        test -d "$COMMON"
+        test -x "$COMMON/scripts/config"
+        test -f "$COMMON/arch/arm64/configs/gki_defconfig"
+
+        {
+          echo "BRANCH=SM-S918B-Oneui8.5"
+          echo "ANDROID_VER=android13"
+          echo "KERNEL_VER=5.15"
+          echo "CONFIG=$SRC"
+          echo "COMMON=$COMMON"
+          echo "GKI_DEFCONFIG=$COMMON/arch/arm64/configs/gki_defconfig"
+        } >> "$GITHUB_ENV"
+
+        printf 'Samsung source: %s\n' "$(git -C "$SRC" rev-parse HEAD)"

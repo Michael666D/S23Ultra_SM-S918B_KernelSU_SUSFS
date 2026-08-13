@@ -1,0 +1,115 @@
+name: WildQ Suki KernelPatch/KPM
+description: Apply Suki's KernelPatch exactly once to the canonical Image, with double-patch guards.
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        set -euo pipefail
+        : "${KERNEL_IMAGE:?KERNEL_IMAGE is not set}"
+
+        REPORT_DIR="$GITHUB_WORKSPACE/wildq-out"
+        mkdir -p "$REPORT_DIR"
+
+        count_marker() {
+          local file="$1" marker="$2"
+          # grep exits 1 for zero matches; wc still provides 0.
+          strings -a "$file" | grep -F "$marker" -c || true
+        }
+
+        pre_kp_ver="$(count_marker "$KERNEL_IMAGE" 'KernelPatch Version')"
+        pre_kp_cfg="$(count_marker "$KERNEL_IMAGE" 'KernelPatch Config')"
+        pre_api="$(count_marker "$KERNEL_IMAGE" 'sukisu_handle_kpm')"
+        pre_load="$(count_marker "$KERNEL_IMAGE" 'SUKISU_KPM_LOAD')"
+
+        {
+          echo "pre_sha256=$(sha256sum "$KERNEL_IMAGE" | awk '{print $1}')"
+          echo "pre_size=$(stat -c %s "$KERNEL_IMAGE")"
+          echo "pre_kernelpatch_version_count=$pre_kp_ver"
+          echo "pre_kernelpatch_config_count=$pre_kp_cfg"
+          echo "pre_sukisu_handle_kpm_count=$pre_api"
+          echo "pre_sukisu_kpm_load_count=$pre_load"
+        } | tee "$REPORT_DIR/kpm-precheck.txt"
+
+        # The source-side Suki KPM API is EXPECTED before post-build KernelPatch.
+        # The KernelPatch core is NOT expected before this action.
+        if [ "$pre_kp_ver" -ne 0 ] || [ "$pre_kp_cfg" -ne 0 ]; then
+          echo "ERROR: Image already contains KernelPatch core markers. Refusing to patch twice."
+          exit 40
+        fi
+        if [ "$pre_api" -lt 1 ] || [ "$pre_load" -lt 1 ]; then
+          echo "ERROR: CONFIG_KPM/source-side Suki KPM API not found in pre-patch Image."
+          echo "Refusing to turn a non-KPM build into KPM only by binary injection."
+          exit 41
+        fi
+
+        PATCH_SHA="547ae94bcaec53d030398f857950c64662043a5d"
+        PATCH_REPO="$GITHUB_WORKSPACE/SukiSU_patch"
+        rm -rf "$PATCH_REPO"
+        git init -q "$PATCH_REPO"
+        git -C "$PATCH_REPO" remote add origin https://github.com/SukiSU-Ultra/SukiSU_patch.git
+        git -C "$PATCH_REPO" fetch --depth=1 origin "$PATCH_SHA"
+        git -C "$PATCH_REPO" checkout --detach FETCH_HEAD
+        test "$(git -C "$PATCH_REPO" rev-parse HEAD)" = "$PATCH_SHA"
+
+        PATCH_LINUX="$PATCH_REPO/kpm/patch_linux"
+        test -f "$PATCH_LINUX"
+        chmod +x "$PATCH_LINUX"
+        sha256sum "$PATCH_LINUX" | tee "$REPORT_DIR/patch_linux.sha256"
+
+        TMP="$(mktemp -d)"
+        trap 'rm -rf "$TMP"' EXIT
+        cp "$KERNEL_IMAGE" "$TMP/Image"
+        cp "$PATCH_LINUX" "$TMP/patch_linux"
+
+        # Verified upstream interface: patch_linux is run with no CLI arguments,
+        # consumes ./Image and produces ./oImage.
+        (
+          cd "$TMP"
+          set +e
+          ./patch_linux 2>&1 | tee "$REPORT_DIR/patch_linux.log"
+          rc=${PIPESTATUS[0]}
+          set -e
+          echo "$rc" > "$REPORT_DIR/patch_linux.exitcode"
+        )
+
+        test -s "$TMP/oImage" || {
+          echo "ERROR: patch_linux did not produce a non-empty oImage."
+          exit 42
+        }
+
+        pre_sha="$(sha256sum "$KERNEL_IMAGE" | awk '{print $1}')"
+        post_sha="$(sha256sum "$TMP/oImage" | awk '{print $1}')"
+        [ "$pre_sha" != "$post_sha" ] || {
+          echo "ERROR: oImage hash equals input Image hash."
+          exit 43
+        }
+
+        post_kp_ver="$(count_marker "$TMP/oImage" 'KernelPatch Version')"
+        post_kp_cfg="$(count_marker "$TMP/oImage" 'KernelPatch Config')"
+        post_api="$(count_marker "$TMP/oImage" 'sukisu_handle_kpm')"
+        post_load="$(count_marker "$TMP/oImage" 'SUKISU_KPM_LOAD')"
+
+        {
+          echo "post_sha256=$post_sha"
+          echo "post_size=$(stat -c %s "$TMP/oImage")"
+          echo "post_kernelpatch_version_count=$post_kp_ver"
+          echo "post_kernelpatch_config_count=$post_kp_cfg"
+          echo "post_sukisu_handle_kpm_count=$post_api"
+          echo "post_sukisu_kpm_load_count=$post_load"
+        } | tee "$REPORT_DIR/kpm-postcheck.txt"
+
+        if [ "$post_kp_ver" -ne 1 ] || [ "$post_kp_cfg" -ne 1 ]; then
+          echo "ERROR: expected exactly one KernelPatch core after patching."
+          exit 44
+        fi
+        if [ "$post_api" -lt 1 ] || [ "$post_load" -lt 1 ]; then
+          echo "ERROR: source-side Suki KPM API disappeared after patching."
+          exit 45
+        fi
+
+        cp "$TMP/oImage" "$KERNEL_IMAGE"
+        cp "$TMP/oImage" "$REPORT_DIR/Image.kpm"
+        echo "SUKI_PATCH_COMMIT=$PATCH_SHA" >> "$GITHUB_ENV"
+        echo "KPM_PATCHED=true" >> "$GITHUB_ENV"
+        echo "KernelPatch applied exactly once."

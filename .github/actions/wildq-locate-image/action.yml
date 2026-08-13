@@ -1,0 +1,53 @@
+name: WildQ locate canonical Image
+description: Select the final Bazel Image once and make a canonical copy used by KPM and AnyKernel.
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        set -euo pipefail
+        OUT="$GITHUB_WORKSPACE/wildq-out"
+        mkdir -p "$OUT"
+
+        candidates=(
+          "$CONFIG/kernel_platform/bazel-bin/common/kernel_aarch64/Image"
+          "$CONFIG/kernel_platform/bazel-bin/common/kernel_aarch64/kernel_aarch64/Image"
+          "$CONFIG/out/msm-kalama-kalama-gki/dist/Image"
+        )
+
+        found=""
+        for p in "${candidates[@]}"; do
+          if [ -f "$p" ]; then
+            found="$p"
+            break
+          fi
+        done
+
+        if [ -z "$found" ]; then
+          mapfile -t images < <(
+            find "$CONFIG" -type f -name Image \
+              ! -path '*/.git/*' \
+              ! -path '*/KernelSU/*' \
+              ! -path '*/AnyKernel3/*' \
+              | grep -E '/(bazel-bin|kbuild_mixed_tree|/dist/|kernel_aarch64)/' \
+              | sort -u
+          )
+          if [ "${#images[@]}" -ne 1 ]; then
+            echo "ERROR: canonical Image could not be selected unambiguously."
+            printf 'candidate: %s\n' "${images[@]:-<none>}"
+            exit 30
+          fi
+          found="${images[0]}"
+        fi
+
+        canonical="$OUT/Image"
+        cp --reflink=auto "$found" "$canonical"
+        cp --reflink=auto "$found" "$OUT/Image.orig"
+
+        test -s "$canonical"
+        echo "KERNEL_BUILD_IMAGE=$found" >> "$GITHUB_ENV"
+        echo "KERNEL_IMAGE=$canonical" >> "$GITHUB_ENV"
+
+        echo "Build Image: $found"
+        echo "Canonical:   $canonical"
+        sha256sum "$found" "$canonical" "$OUT/Image.orig"

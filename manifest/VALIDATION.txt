@@ -1,0 +1,10 @@
+YAML OK: .github/workflows/wildq-sm918b.yml
+YAML OK: .github/actions/wildq-locate-image/action.yml
+YAML OK: .github/actions/wildq-stage-ak3/action.yml
+YAML OK: .github/actions/wildq-dependencies/action.yml
+YAML OK: .github/actions/wildq-kpm/action.yml
+YAML OK: .github/actions/wildq-sukisu/action.yml
+YAML OK: .github/actions/wildq-clone-kernel/action.yml
+Python syntax OK: scripts/wildq_scan_image.py
+
+Overlay collision check: WILDQ_README.md used; upstream README.md is not modified.

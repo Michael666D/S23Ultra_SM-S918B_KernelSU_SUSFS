@@ -1,0 +1,78 @@
+name: WildQ SukiSU
+description: Integrate the exact SukiSU revision observed in the known-good qlenlen binary.
+inputs:
+  kpm:
+    description: Enable SukiSU CONFIG_KPM source-side support (post-build KernelPatch is separate).
+    required: true
+  susfs:
+    description: Enable SukiSU SUSFS interface. Kernel-side SUSFS patching is a separate step.
+    required: true
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        set -euo pipefail
+
+        SUKI_SHA="b1d534bc41941b2c818d7a1a1dac341e4aabfc2d"
+        GKI_ROOT="$CONFIG/kernel_platform"
+        SUKI_DIR="$GKI_ROOT/KernelSU"
+        DRIVER_DIR="$COMMON/drivers"
+        DRIVER_MAKEFILE="$DRIVER_DIR/Makefile"
+        DRIVER_KCONFIG="$DRIVER_DIR/Kconfig"
+
+        # Refuse a mixed root-framework source tree.
+        if [ -e "$GKI_ROOT/KernelSU-Next" ] || [ -e "$COMMON/KernelSU-Next" ]; then
+          echo "ERROR: KernelSU-Next tree already present. WildQ W1-W3 must not mix KSUN and SukiSU."
+          exit 20
+        fi
+
+        rm -rf "$SUKI_DIR"
+        git init -q "$SUKI_DIR"
+        git -C "$SUKI_DIR" remote add origin https://github.com/SukiSU-Ultra/SukiSU-Ultra.git
+        git -C "$SUKI_DIR" fetch --depth=1 origin "$SUKI_SHA"
+        git -C "$SUKI_DIR" checkout --detach FETCH_HEAD
+        test "$(git -C "$SUKI_DIR" rev-parse HEAD)" = "$SUKI_SHA"
+
+        rm -f "$DRIVER_DIR/kernelsu"
+        ln -s "$(realpath --relative-to="$DRIVER_DIR" "$SUKI_DIR/kernel")" "$DRIVER_DIR/kernelsu"
+
+        grep -q 'obj-$(CONFIG_KSU) += kernelsu/' "$DRIVER_MAKEFILE" || \
+          printf '\nobj-$(CONFIG_KSU) += kernelsu/\n' >> "$DRIVER_MAKEFILE"
+
+        grep -q 'source "drivers/kernelsu/Kconfig"' "$DRIVER_KCONFIG" || \
+          sed -i '/endmenu/i\source "drivers/kernelsu/Kconfig"' "$DRIVER_KCONFIG"
+
+        "$COMMON/scripts/config" --file "$GKI_DEFCONFIG" --enable CONFIG_KSU
+
+        if [ "${{ inputs.susfs }}" = "true" ]; then
+          "$COMMON/scripts/config" --file "$GKI_DEFCONFIG" --enable CONFIG_KSU_SUSFS
+        else
+          # Suki v4.1.3 has CONFIG_KSU_SUSFS default y. W1 must explicitly
+          # disable it because W1 intentionally has no SUSFS kernel patch.
+          "$COMMON/scripts/config" --file "$GKI_DEFCONFIG" --disable CONFIG_KSU_SUSFS
+        fi
+
+        if [ "${{ inputs.kpm }}" = "true" ]; then
+          "$COMMON/scripts/config" --file "$GKI_DEFCONFIG" --enable CONFIG_KPM
+          "$COMMON/scripts/config" --file "$GKI_DEFCONFIG" --enable CONFIG_KALLSYMS
+          "$COMMON/scripts/config" --file "$GKI_DEFCONFIG" --enable CONFIG_KALLSYMS_ALL
+        else
+          "$COMMON/scripts/config" --file "$GKI_DEFCONFIG" --disable CONFIG_KPM
+        fi
+
+        # Suki Kconfig requires KSU && 64BIT; KSU itself expects the kernel prerequisites.
+        grep -q '^CONFIG_64BIT=y' "$GKI_DEFCONFIG" || {
+          echo "ERROR: CONFIG_64BIT=y missing"; exit 21;
+        }
+        grep -q '^CONFIG_KPROBES=y' "$GKI_DEFCONFIG" || {
+          echo "ERROR: CONFIG_KPROBES=y missing"; exit 22;
+        }
+
+        {
+          echo "SUKI_COMMIT=$SUKI_SHA"
+          echo "SUKI_DIR=$SUKI_DIR"
+        } >> "$GITHUB_ENV"
+
+        echo "SukiSU integrated at $SUKI_SHA"
+        grep -E '^(CONFIG_KSU|CONFIG_KPM|CONFIG_KSU_SUSFS|CONFIG_KALLSYMS|CONFIG_KALLSYMS_ALL)=' "$GKI_DEFCONFIG" || true

@@ -1,0 +1,87 @@
+{
+  "qlenlen_suki_susfs_kpm": {
+    "source_filename": "Kalama-5.15.lts-SUKI-SUSFS-KPM.zip",
+    "zip_size": 23489548,
+    "zip_sha256": "cd13f6c6729d07548e33a98ac70bff9f024d4f66a6e99a46f6661176f0374a0c",
+    "image_size": 45256768,
+    "image_sha256": "70ff3ae9b5ed9d3107ff3507e1c6fafd4bf8ae8b47d5c0b445f39b22039c38ad",
+    "kernel_banner": "Linux version 5.15.211-Qkernel-gd087c53c1e (runner@runnervmvrwv9) (Android (11967740, +pgo, +bolt, +lto, +mlgo, based on r522817) clang version 18.0.1 (https://android.googlesource.com/toolchain/llvm-project d8003a456d14a3deb8054cdaa529ffbf02d9b262), LLD 18.0.1) #3 SMP PREEMPT Wed Jul 29 11:45:36 UTC 2026",
+    "builtin_version_strings": [
+      "v4.1.3-b1d534bc@builtin"
+    ],
+    "marker_counts": {
+      "KernelPatch Version": 1,
+      "KernelPatch Config": 1,
+      "sukisu_handle_kpm": 2,
+      "sukisu_is_kpm_control_code": 1,
+      "sukisu_kpm_control": 6,
+      "sukisu_kpm_info": 6,
+      "sukisu_kpm_list": 6,
+      "sukisu_kpm_version": 6,
+      "SUKISU_KPM_LOAD": 1,
+      "SUKISU_KPM_UNLOAD": 1,
+      ".kpm.init": 2,
+      "bypass_kcfi": 1,
+      "__cfi_slowpath_diag": 3,
+      "report_cfi_failure": 1
+    },
+    "contains_modules_in_zip": false,
+    "contains_dtb_or_dtbo": false
+  },
+  "qlenlen_suki_susfs": {
+    "source_filename": "Kalama-5.15.lts-SUKI-SUSFS.zip",
+    "zip_size": 23489125,
+    "zip_sha256": "9bb786edafa435fe4730163b086cf29a27813ab6249636789be32ce723d0ebe5",
+    "image_size": 45252672,
+    "image_sha256": "ef0bdfb8ab8fb0e0adbd2b53ee2d588113b230bb7f375f07375ab7326476b858",
+    "kernel_banner": "Linux version 5.15.211-Qkernel-gd087c53c1e (runner@runnervmvrwv9) (Android (11967740, +pgo, +bolt, +lto, +mlgo, based on r522817) clang version 18.0.1 (https://android.googlesource.com/toolchain/llvm-project d8003a456d14a3deb8054cdaa529ffbf02d9b262), LLD 18.0.1) #3 SMP PREEMPT Wed Jul 29 11:46:03 UTC 2026",
+    "builtin_version_strings": [
+      "v4.1.3-b1d534bc@builtin"
+    ],
+    "marker_counts": {
+      "KernelPatch Version": 1,
+      "KernelPatch Config": 1,
+      "sukisu_handle_kpm": 0,
+      "sukisu_is_kpm_control_code": 0,
+      "sukisu_kpm_control": 3,
+      "sukisu_kpm_info": 3,
+      "sukisu_kpm_list": 3,
+      "sukisu_kpm_version": 3,
+      "SUKISU_KPM_LOAD": 0,
+      "SUKISU_KPM_UNLOAD": 0,
+      ".kpm.init": 2,
+      "bypass_kcfi": 1,
+      "__cfi_slowpath_diag": 3,
+      "report_cfi_failure": 1
+    },
+    "contains_modules_in_zip": false,
+    "contains_dtb_or_dtbo": false
+  },
+  "wild_known_good": {
+    "source_filename": "SM-S918B-Oneui8.5-KSUN33239-SUSFS-BBG-BBRV3-DS-NTS-IPv6_IP-set-TTL-UF-AnyKernel3.zip",
+    "zip_size": 22730514,
+    "zip_sha256": "45f7c8814bebb4155a3965ff8da39fc5fda15d6d31e40bf206986603ea051996",
+    "image_size": 44075520,
+    "image_sha256": "2272f76b8aca2ceeb4f360b8c973a1616fefd50e91242890d64896befa12fd4d",
+    "kernel_banner": "Linux version 5.15.189-android13-8-maybe-dirty-ab-Wild (build-user@build-host) (Android (8508608, based on r450784e) clang version 14.0.7 (https://android.googlesource.com/toolchain/llvm-project 4c603efb0cca074e9238af8b4106c30add4418f6), LLD 14.0.7) #1 SMP PREEMPT Thu Jan 1 00:00:00 UTC 1970",
+    "builtin_version_strings": [],
+    "marker_counts": {
+      "KernelPatch Version": 0,
+      "KernelPatch Config": 0,
+      "sukisu_handle_kpm": 0,
+      "sukisu_is_kpm_control_code": 0,
+      "sukisu_kpm_control": 0,
+      "sukisu_kpm_info": 0,
+      "sukisu_kpm_list": 0,
+      "sukisu_kpm_version": 0,
+      "SUKISU_KPM_LOAD": 0,
+      "SUKISU_KPM_UNLOAD": 0,
+      ".kpm.init": 0,
+      "bypass_kcfi": 0,
+      "__cfi_slowpath_diag": 2,
+      "report_cfi_failure": 0
+    },
+    "contains_modules_in_zip": false,
+    "contains_dtb_or_dtbo": false
+  }
+}

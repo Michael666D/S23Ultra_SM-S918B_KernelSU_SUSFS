@@ -1,0 +1,41 @@
+name: WildQ stage AnyKernel3
+description: Stage exactly the canonical Image validated by WildQ; no heuristic Image rediscovery.
+inputs:
+  stage:
+    required: true
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        set -euo pipefail
+        : "${KERNEL_IMAGE:?KERNEL_IMAGE is not set}"
+        : "${ANYKERNEL3:?ANYKERNEL3 is not set}"
+
+        test -s "$KERNEL_IMAGE"
+        rm -f "$ANYKERNEL3/Image" "$ANYKERNEL3/Image.gz"
+        cp "$KERNEL_IMAGE" "$ANYKERNEL3/Image"
+
+        src="$(sha256sum "$KERNEL_IMAGE" | awk '{print $1}')"
+        dst="$(sha256sum "$ANYKERNEL3/Image" | awk '{print $1}')"
+        [ "$src" = "$dst" ] || {
+          echo "ERROR: staged AnyKernel Image is not the canonical Image."
+          exit 50
+        }
+
+        FILE_NAME="SM-S918B-Oneui8.5-WildQ-${{ inputs.stage }}-Suki"
+        if [ "${{ inputs.stage }}" = "W2" ]; then FILE_NAME="${FILE_NAME}-SUSFS"; fi
+        if [ "${{ inputs.stage }}" = "W3" ]; then FILE_NAME="${FILE_NAME}-SUSFS-KPM"; fi
+        echo "FILE_NAME=$FILE_NAME" >> "$GITHUB_ENV"
+
+        python3 "$GITHUB_WORKSPACE/scripts/wildq_scan_image.py" \
+          "$KERNEL_IMAGE" \
+          --output "$GITHUB_WORKSPACE/wildq-out/final-image.json"
+
+        (
+          cd "$ANYKERNEL3"
+          zip -r9 "$GITHUB_WORKSPACE/${FILE_NAME}.zip" . \
+            -x '.git/*' '.github/*' >/dev/null
+        )
+        sha256sum "$GITHUB_WORKSPACE/${FILE_NAME}.zip" \
+          | tee "$GITHUB_WORKSPACE/wildq-out/final-zip.sha256"

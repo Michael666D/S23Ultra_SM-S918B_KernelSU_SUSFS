@@ -1,0 +1,236 @@
+name: WildQ SM-S918B W1-W3
+
+on:
+  workflow_dispatch:
+    inputs:
+      stage:
+        description: "W1=Suki only; W2=Suki+SUSFS; W3=Suki+SUSFS+KPM"
+        required: true
+        type: choice
+        options:
+          - W1
+          - W2
+          - W3
+        default: W1
+
+permissions:
+  contents: read
+
+jobs:
+  wildq:
+    name: "SM-S918B OneUI8.5 ${{ inputs.stage }}"
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+
+    steps:
+      - name: Checkout WildQ overlay repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Verify Wild base ancestry
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE="87a2cca5c6a4ac468446f3513119f95431dbee4a"
+          git cat-file -e "$BASE^{commit}" || {
+            echo "ERROR: Wild base $BASE is not in this repository history."
+            echo "Create the WildQ branch from WildKernels/Samsung_KernelSU_SUSFS@$BASE first."
+            exit 2
+          }
+          git merge-base --is-ancestor "$BASE" HEAD || {
+            echo "ERROR: current branch is not based on the audited Wild W0 commit."
+            exit 3
+          }
+
+      - name: Free disk space (same strategy family as Wild W0)
+        uses: endersonmenezes/free-disk-space@v3
+        with:
+          remove_android: true
+          remove_dotnet: true
+          remove_haskell: true
+          remove_tool_cache: true
+          remove_swap: true
+          remove_packages: "azure-cli google-cloud-cli microsoft-edge-stable google-chrome-stable firefox postgresql* temurin-* *llvm* mysql* dotnet-sdk-*"
+          remove_packages_one_command: true
+          remove_folders: "/usr/share/swift /usr/share/miniconda /usr/share/az* /usr/local/lib/node_modules /usr/local/share/chromium /usr/local/share/powershell /usr/local/julia /usr/local/aws-cli /usr/local/aws-sam-cli /usr/share/gradle"
+          rm_cmd: "rmz"
+          rmz_version: "3.1.1"
+          testing: false
+
+      - name: Setup swap for Full LTO
+        uses: thejerrybao/setup-swap-space@v1
+        with:
+          swap-size-gb: 25
+
+      - name: Set fixed WildQ environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            echo "ROOT=$GITHUB_WORKSPACE"
+            echo "BRANCH=SM-S918B-Oneui8.5"
+            echo "ANDROID_VER=android13"
+            echo "KERNEL_VER=5.15"
+            echo "WILDQ_STAGE=${{ inputs.stage }}"
+          } >> "$GITHUB_ENV"
+          mkdir -p "$GITHUB_WORKSPACE/wildq-out"
+
+      - name: Clone pinned W0 dependencies
+        uses: ./.github/actions/wildq-dependencies
+
+      - name: Clone pinned Samsung SM-S918B source
+        uses: ./.github/actions/wildq-clone-kernel
+
+      - name: Extract Samsung source tar.xz payloads
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$CONFIG"
+          find . -type f -name '*.tar.xz' -print0 | while IFS= read -r -d '' file; do
+            echo "Extracting $file"
+            tar -xf "$file"
+            rm "$file"
+          done
+
+      - name: Integrate SukiSU
+        uses: ./.github/actions/wildq-sukisu
+        with:
+          kpm: ${{ inputs.stage == 'W3' && 'true' || 'false' }}
+          susfs: ${{ inputs.stage != 'W1' && 'true' || 'false' }}
+
+      # W2/W3 deliberately reuse the audited Wild SUSFS kernel-side action first.
+      # It still contains mutable Simonpunk/Pershoot fetches; the next step records
+      # the exact runtime commit so the successful combination can be pinned.
+      - name: Add SUSFS using Wild W0-era integration
+        if: inputs.stage == 'W2' || inputs.stage == 'W3'
+        uses: ./.github/actions/susfs-patches
+
+      - name: Record SUSFS runtime revision
+        if: inputs.stage == 'W2' || inputs.stage == 'W3'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -d "$GITHUB_WORKSPACE/susfs4ksu/.git" ]; then
+            {
+              echo "susfs_head=$(git -C "$GITHUB_WORKSPACE/susfs4ksu" rev-parse HEAD)"
+              echo "susfs_history:"
+              git -C "$GITHUB_WORKSPACE/susfs4ksu" log -n 5 --format='%H %s'
+            } | tee "$GITHUB_WORKSPACE/wildq-out/susfs-runtime.txt"
+          else
+            echo "ERROR: susfs4ksu working tree missing."
+            exit 4
+          fi
+
+      # Important: Wild W0 only ran this because KSUN=true. WildQ runs it
+      # explicitly so changing the root engine does NOT silently change the
+      # Samsung security/config policy during W1-W3.
+      - name: Preserve Wild W0 kernel configuration policy
+        uses: ./.github/actions/configs
+
+      - name: Fail on unresolved patch rejects
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t rejects < <(find "$CONFIG" -type f -name '*.rej' -print)
+          if [ "${#rejects[@]}" -gt 0 ]; then
+            echo "ERROR: unresolved patch rejects remain after integration:"
+            printf '  %s\n' "${rejects[@]}"
+            exit 5
+          fi
+          echo "No unresolved .rej files."
+
+      - name: Keep Wild kernel naming behavior
+        uses: ./.github/actions/kernel-name
+
+      - name: Keep Wild ABI export behavior
+        uses: ./.github/actions/abi-export
+
+      - name: Keep Wild Full LTO behavior
+        uses: ./.github/actions/lto
+
+      - name: Snapshot final requested defconfig
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp "$GKI_DEFCONFIG" "$GITHUB_WORKSPACE/wildq-out/gki_defconfig.requested"
+          sha256sum "$GKI_DEFCONFIG" | tee "$GITHUB_WORKSPACE/wildq-out/gki_defconfig.sha256"
+          grep -E '^(CONFIG_KSU|CONFIG_KPM|CONFIG_KSU_SUSFS|CONFIG_KALLSYMS|CONFIG_KALLSYMS_ALL|CONFIG_LTO|CONFIG_LTO_CLANG|CONFIG_LTO_CLANG_FULL|CONFIG_CFI_CLANG|CONFIG_MODULES|CONFIG_MODVERSIONS|CONFIG_MODULE_SIG|CONFIG_MODULE_SIG_PROTECT|CONFIG_SECURITY_DEFEX|CONFIG_FIVE|CONFIG_PROCA|CONFIG_RKP|CONFIG_KDP)=' \
+            "$GKI_DEFCONFIG" | tee "$GITHUB_WORKSPACE/wildq-out/key-configs.txt" || true
+
+      - name: Build GKI kernel
+        uses: ./.github/actions/build
+        with:
+          build_type: Bazel
+
+      - name: Locate canonical final Image
+        uses: ./.github/actions/wildq-locate-image
+
+      - name: Scan pre-KernelPatch Image
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 "$GITHUB_WORKSPACE/scripts/wildq_scan_image.py" \
+            "$KERNEL_IMAGE" \
+            --output "$GITHUB_WORKSPACE/wildq-out/pre-kpatch-image.json"
+
+      - name: Apply Suki KernelPatch exactly once
+        if: inputs.stage == 'W3'
+        uses: ./.github/actions/wildq-kpm
+
+      - name: Stage canonical Image into AnyKernel3
+        uses: ./.github/actions/wildq-stage-ak3
+        with:
+          stage: ${{ inputs.stage }}
+
+      - name: Write build manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > "$GITHUB_WORKSPACE/wildq-out/build-manifest.txt" <<EOF
+          WildQ stage: ${{ inputs.stage }}
+          Device: SM-S918B
+          Codename: dm3q
+          SoC: SM8550/Kalama
+          Wild audited base: 87a2cca5c6a4ac468446f3513119f95431dbee4a
+          Samsung source: $(git -C "$CONFIG" rev-parse HEAD)
+          SukiSU: $(git -C "$SUKI_DIR" rev-parse HEAD)
+          kernel_patches: $(git -C "$KERNEL_PATCHES" rev-parse HEAD)
+          AnyKernel3: $(git -C "$ANYKERNEL3" rev-parse HEAD)
+          Bazel target: //common:kernel_aarch64
+          Kernel build image: $KERNEL_BUILD_IMAGE
+          Canonical image: $KERNEL_IMAGE
+          Kernel image SHA256: $(sha256sum "$KERNEL_IMAGE" | awk '{print $1}')
+          Kernel image size: $(stat -c %s "$KERNEL_IMAGE")
+          KPM patched: ${KPM_PATCHED:-false}
+          Suki patch commit: ${SUKI_PATCH_COMMIT:-not-used}
+          EOF
+          if [ -f "$GITHUB_WORKSPACE/wildq-out/susfs-runtime.txt" ]; then
+            cat "$GITHUB_WORKSPACE/wildq-out/susfs-runtime.txt" >> "$GITHUB_WORKSPACE/wildq-out/build-manifest.txt"
+          fi
+          cat "$GITHUB_WORKSPACE/wildq-out/build-manifest.txt"
+
+      - name: Collect patch rejects
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/wildq-out/rejects"
+          find "${CONFIG:-/nonexistent}" -type f -name '*.rej' -print -exec cp --parents {} "$GITHUB_WORKSPACE/wildq-out/rejects/" \; 2>/dev/null || true
+
+      - name: Upload installable ZIP
+        uses: actions/upload-artifact@v6
+        with:
+          name: "WildQ-${{ inputs.stage }}-SM-S918B"
+          path: "SM-S918B-Oneui8.5-WildQ-${{ inputs.stage }}-Suki*.zip"
+          if-no-files-found: error
+          compression-level: 0
+
+      - name: Upload diagnostics and manifests
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: "WildQ-${{ inputs.stage }}-diagnostics"
+          path: |
+            wildq-out/**
+          if-no-files-found: warn
+          compression-level: 9

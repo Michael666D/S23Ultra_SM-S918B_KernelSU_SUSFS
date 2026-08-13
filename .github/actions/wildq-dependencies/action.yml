@@ -1,0 +1,29 @@
+name: WildQ pinned dependencies
+description: Clone the W0-era dependency trees by immutable commit.
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        set -euo pipefail
+        clone_at() {
+          local url="$1" sha="$2" dir="$3"
+          rm -rf "$dir"
+          git init -q "$dir"
+          git -C "$dir" remote add origin "$url"
+          git -C "$dir" fetch --depth=1 origin "$sha"
+          git -C "$dir" checkout --detach FETCH_HEAD
+          test "$(git -C "$dir" rev-parse HEAD)" = "$sha"
+        }
+
+        clone_at "https://github.com/WildKernels/kernel_patches.git" \
+          "f569cc9e69d6f03a488c391db4cc00db8ead7a59" \
+          "$GITHUB_WORKSPACE/kernel_patches"
+
+        clone_at "https://github.com/WildKernels/AnyKernel3.git" \
+          "e1e9dce98430c5c6f231f7094a8c7f4ecaf50948" \
+          "$GITHUB_WORKSPACE/AnyKernel3"
+
+        echo "ROOT=$GITHUB_WORKSPACE" >> "$GITHUB_ENV"
+        echo "KERNEL_PATCHES=$GITHUB_WORKSPACE/kernel_patches" >> "$GITHUB_ENV"
+        echo "ANYKERNEL3=$GITHUB_WORKSPACE/AnyKernel3" >> "$GITHUB_ENV"
