@@ -6,7 +6,7 @@ runs:
     - shell: bash
       run: |
         set -euo pipefail
-        SRC="$GITHUB_WORKSPACE/wildq-source"
+        SRC="wildq-source"
         SHA="2558751f5fdf349c0f3271106689e212a70a6a25"
         rm -rf "$SRC"
         git init -q "$SRC"
