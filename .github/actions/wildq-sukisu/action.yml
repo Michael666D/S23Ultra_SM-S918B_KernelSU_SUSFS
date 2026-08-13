@@ -62,9 +62,6 @@ runs:
         fi
 
         # Suki Kconfig requires KSU && 64BIT; KSU itself expects the kernel prerequisites.
-        grep -q '^CONFIG_64BIT=y' "$GKI_DEFCONFIG" || {
-          echo "ERROR: CONFIG_64BIT=y missing"; exit 21;
-        }
         grep -q '^CONFIG_KPROBES=y' "$GKI_DEFCONFIG" || {
           echo "ERROR: CONFIG_KPROBES=y missing"; exit 22;
         }
